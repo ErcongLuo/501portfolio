@@ -1,0 +1,33 @@
+---
+title: "apiCall"
+author: "Ercong Luo"
+date: "9/15/2021"
+output: html_document
+---
+https://www.businessinsider.com/building-electric-cars-how-much-pollution-versus-gas-powered-vehicles-2019-11
+
+
+I am using an R package for newsapi that is open source with documentation here: https://cran.r-project.org/web/packages/newsanchor/newsanchor.pdf
+```{r}
+library(newsanchor)
+set_api_key("fea5c56a315742a8bcc16a4c19a1b31e")
+```
+
+
+```{r}
+df <- get_everything(query = "Electric Vehicles AND sustainability",
+                     sources = NULL,
+                     domains = NULL,
+                     exclude_domains = NULL,
+                     from = NULL,
+                     to = NULL,
+                     language = "en",
+                     sort_by = "relevancy", page = 1, page_size = 50,
+                     api_key = "fea5c56a315742a8bcc16a4c19a1b31e")
+head(df)
+```
+
+```{r}
+write.csv(df, "/Users/ercongluo/Documents/GU/501/501portfolio/APIcalls/EVsustainability.csv" , row.names = TRUE)
+```
+
