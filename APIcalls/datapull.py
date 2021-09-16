@@ -18,7 +18,7 @@ from newsapi import NewsApiClient
 # /v2/everything
 url = ('https://newsapi.org/v2/everything?'
        #'q=university&'
-       'q=battery recycling AND environment&'
+       'q=electric vehicle AND environment&'
        #'from=2021-02-06&'
        #'to=2020-03-07&'
        #'sources=fox-news&'
