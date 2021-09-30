@@ -1,0 +1,99 @@
+---
+title: "carEmissionData"
+author: "Ercong Luo"
+date: "9/29/2021"
+output: html_document
+---
+
+```{r}
+library(readxl) # to read in excel sheet
+```
+
+
+First to read the excel sheet in as a dataframe:
+```{r}
+DF <- read_excel("CO2Data_raw.xlsx",)
+(str(DF))
+```
+
+As seen below, the tail of the dataset contains two rows of data that are only footnotes. So they 
+will be deleted.
+```{r}
+(tail(DF))
+DF <- DF[-c(22,23),]
+(tail(DF))
+```
+
+Next, fix data types":\
+
+- "Model" is good as is. 
+- "Make" should be of type _factor_. 
+- "EV" should be of type _logical_. 
+- "Model Year" should be of type _integer_. 
+- "Units Sold" should be of type _integer_, they aren't long enough to be doubles. 
+- "Battery Emissions" should be of type _numeric_
+- "Engine/Motor Emissions (tons)", "Maintenance Emissions (tons)", "Body Construction (tons)", "Tank Emissions (tons)" should be of type _numeric_
+- "EV Feature" should be of type _factor_
+
+To the following chunk of code will fix the data types
+```{r}
+DF$Make <- as.factor(DF$Make)
+DF$EV<- as.logical(DF$EV)
+DF$`Model Year`<- as.integer(DF$`Model Year`)
+DF$`Units sold` <- as.integer(DF$`Units sold`)
+DF$`Battery Emissions (tons)` <- as.numeric(DF$`Battery Emissions (tons)`)
+DF$`Engine/Motor Emissions (tons)` <- as.numeric(DF$`Engine/Motor Emissions (tons)`)
+DF$`Maintenance Emissions (tons)` <- as.numeric(DF$`Maintenance Emissions (tons)`)
+DF$`Body Construction (tons)` <- as.numeric(DF$`Body Construction (tons)`)
+DF$`Tank Emissions (tons)` <- as.numeric(DF$`Tank Emissions (tons)`)
+
+# the NA values in EV Feature stand for "not applicable" because this feature only applies to EVs. 
+DF$`EV Feature`[DF$EV == FALSE] = "NotApplicable"
+DF$`EV Feature` <- as.factor(DF$`EV Feature`)
+```
+
+```{r}
+str(DF)
+```
+
+```{r}
+DF
+```
+
+It can be seen above that all Battery Emission entries with NA values are internal-combustion cars, so obviously there was so
+CO2 emissions with producing its battery pack. Therefore these entries can just be filled in with zeros:
+```{r}
+DF$`Battery Emissions (tons)`[DF$EV == FALSE] = 0
+```
+The emissions for producing an engine for internal combustion cars has a pretty small standard deviation (0.217 as calculated below). Therefore it is 
+okay to replace NA values with the mean of internal combustion cars. 
+```{r}
+(sd(DF$`Engine/Motor Emissions (tons)`[!is.na(DF$`Engine/Motor Emissions (tons)`) & DF$EV == FALSE]))
+temp <- (mean(DF$`Engine/Motor Emissions (tons)`[!is.na(DF$`Engine/Motor Emissions (tons)`) & DF$EV == FALSE]))
+DF$`Engine/Motor Emissions (tons)`[is.na(DF$`Engine/Motor Emissions (tons)`) & DF$EV == FALSE] <- temp
+```
+
+Other features where the variation of the data is small and it is okay to plug in mean value is the Tank Emissions and Body Construction, and Maintenance Emissions.
+```{r}
+(sd(DF$`Tank Emissions (tons)`[!is.na(DF$`Tank Emissions (tons)`) & DF$EV == FALSE]))
+temp <- (mean(DF$`Tank Emissions (tons)`[!is.na(DF$`Tank Emissions (tons)`) & DF$EV == FALSE]))
+DF$`Tank Emissions (tons)`[is.na(DF$`Tank Emissions (tons)`) & DF$EV == FALSE] <- temp
+```
+
+```{r}
+(sd(DF$`Body Construction (tons)`[!is.na(DF$`Body Construction (tons)`)]))
+temp <- (mean(DF$`Body Construction (tons)`[!is.na(DF$`Body Construction (tons)`)]))
+DF$`Body Construction (tons)`[is.na(DF$`Body Construction (tons)`)] <- temp
+```
+
+```{r}
+(sd(DF$`Maintenance Emissions (tons)`[!is.na(DF$`Maintenance Emissions (tons)`) & DF$EV == FALSE]))
+temp <- (mean(DF$`Maintenance Emissions (tons)`[!is.na(DF$`Maintenance Emissions (tons)`) & DF$EV == FALSE]))
+DF$`Maintenance Emissions (tons)`[is.na(DF$`Maintenance Emissions (tons)`) & DF$EV == FALSE] <- temp
+```
+
+Now that the record data is cleaned, write this out to a .csv file. 
+```{r}
+write.csv(DF, file = "carEmissionData_cleaned.csv")
+```
+
