@@ -1,0 +1,69 @@
+---
+title: "record_clustering"
+author: "Ercong Luo"
+date: "10/11/2021"
+output: html_document
+---
+
+First import the dataset, and normalize each column so that each feature is weighted equally. 
+```{r}
+(df <- read.csv("/Users/ercongluo/Documents/GU/501/501portfolio/datasets/carEmissionData/carEmissionData_cleaned.csv"))
+index = c(2,4,7,8,9,10,11)
+relevant_features = names(df)[index]
+
+analysis <- df[relevant_features]
+
+
+for (feature in relevant_features[3:length(relevant_features)]){
+ analysis[feature] = (df[feature] - min(df[feature])) / max(df[feature])
+}
+
+(analysis)
+```
+
+```{r}
+head(df)
+```
+
+
+```{r}
+library(scatterplot3d)
+relevant_features = relevant_features[3:length(relevant_features)]
+```
+
+```{r}
+KMeans = function(k){
+  km <- kmeans(analysis[relevant_features], centers = k, iter.max = 10)
+  # to visualize the clusters
+  # reference below:
+  # https://stackoverflow.com/questions/60589690/how-can-i-make-a-3d-plot-in-r-of-the-clusters-obtained-with-kmeans
+  scatterplot3d(df[relevant_features[c(1,2,5)]], pch=20, color=rainbow(k)[km$cluster])
+  print(km)
+}
+
+for (k in c(2,4,6)){
+  KMeans(k)
+}
+
+```
+
+```{r}
+elbow = c()
+for (k in c(1:7)){
+  elbow = c(kmeans(analysis[relevant_features], centers = k, iter.max = 60)$withinss)
+}
+plot(x = c(1:7), y = elbow, ylab = "Within Cluster Sum of Squares", xlab = "k", type = "b")
+```
+
+Below is the hierarchical clustering result based on emissions features. 
+```{r}
+dist_mat <- dist(analysis[relevant_features], method = 'euclidean')
+hclust_avg <- hclust(dist_mat, method = 'average')
+plot(hclust_avg)
+```
+
+```{r}
+dd = dist(analysis[,3:7], method = "euclidean", diag = FALSE, upper = FALSE, p = 2)
+corrplot::corrplot(as.matrix(dd) , is.corr = FALSE , type = "upper",diag = F,method = "color",tl.cex = 3,cl.cex = 1)
+```
+
