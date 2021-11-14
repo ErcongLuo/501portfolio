@@ -1,0 +1,191 @@
+---
+title: "co2_DT"
+author: "Ercong Luo"
+date: "11/12/2021"
+output: html_document
+---
+
+```{r}
+library(tidyverse)
+library(readxl)
+library(ggplot2)
+library(rpart)
+library(rpart.plot)
+library(readr)
+library(dplyr)
+library(party)
+library(ROCR)
+set.seed(100)
+```
+
+
+```{r}
+df <- read_excel("CO2_passenger_cars.xlsx", guess_max = 300, n_max = Inf)
+```
+
+
+Subseting the DF to relevant features: 
+
+```{r}
+features = c( "MS",
+              "Mk",
+              "Cn",
+              "Ct",
+              "Cr",
+              "m (kg)",
+              "Enedc (g/km)",
+              "Ewltp (g/km)",
+              "W (mm)",
+              "Ft",
+              "Fm",
+              "ec (cm3)",
+              "ep (KW)",
+              "z (Wh/km)",
+              "It",
+              "Ernedc (g/km)",
+              "Erwltp (g/km)",
+              "De",
+              "Vf",
+              "r")
+df = subset(df, select = features)
+```
+
+
+Metadata: 
+
+```{r}
+head(df, n = 30)
+str(df)
+```
+
+Check which columns have too many _NA_ values: 
+
+```{r}
+for (feature in features){
+  temp = mean(is.na(df[feature]))
+  if (temp < 0.10){
+    string = paste(feature,": proportion of NA values",  "is", temp)
+  } else{
+    string = paste("***", feature, ": proportion of NA values", "is TOO HIGH at", temp, "***")
+  }
+  print(string)
+}
+```
+
+```{r}
+df.model = subset(df, select = -c(Cr,
+            `Ewltp (g/km)`,
+            `z (Wh/km)`,
+            It,
+            `Ernedc (g/km)`,
+            `Erwltp (g/km)`,
+            De,
+            Vf,
+            r))
+```
+
+Cleaning up the make of the cars. And these are the electric car makers represented in the dataset:
+```{r}
+df$Mk = toupper(df$Mk)
+df$Mk[df$Mk == "ALFA"] = "ALFA ROMEO"
+df$Mk[df$Mk == "ASTON MARTIN"] = "ASTON-MARTIN"
+df$Mk[df$Mk == "Audi"] = "AUDI"
+df$Mk[df$Mk == "BMW ALPINA"] = "BMW"
+df$Mk[df$Mk == "BMW I"] = "BMW"
+df$Mk[df$Mk == "CITROËN"] = "CITROEN"
+df$Mk[df$Mk == "CITROEN, DS"] = "CITROEN"
+df$Mk[df$Mk == "Ford"] = "FORD"
+df$Mk[df$Mk == "Honda"] = "HONDA"
+df$Mk[df$Mk == "ALFA"] = "ALFAROMEO"
+df$Mk[df$Mk == "MERCEDES"] = "MERCEDES-BENZ"
+df$Mk[df$Mk == "TESLA MOTORS"] = "TESLA"
+df$Mk[df$Mk == "VOLKSWAGEN, VW"] = "VOLKSWAGEN"
+df$Mk[df$Mk == "VOLKSWAGEN,VW"] = "VOLKSWAGEN"
+df$Mk[df$Mk == "VW"] = "VOLKSWAGEN"
+(table(df$Mk[df$Ft == "ELECTRIC"]))
+```
+
+```{r}
+df$Ft = toupper(df$Ft)
+```
+
+```{r}
+df.model = df.model[(df.model$Ft== "DIESEL" | df.model$Ft== "ELECTRIC" | df.model$Ft== "PETROL"),]
+boxplot(`Enedc (g/km)`~Ft, data = df.model, las=2)
+```
+
+```{r}
+print(table(df.model$Mk,df.model$Ft))
+```
+
+```{r}
+print(table(df.model$Ft))
+```
+
+More more round of data cleaning: convert to Factors when necessary. 
+
+```{r}
+df.model = subset(df.model, select = -Ct)
+df.model$MS = factor(df.model$MS)
+df.model$Mk = factor(df.model$Mk)
+df.model$Ft = factor(df.model$Ft)
+df.model$Fm = factor(df.model$Fm)
+```
+
+Split test-train datasets. 
+
+```{r}
+get.train.indices <- function(){
+  index1 <- sample(df.model$tag[df.model$Ft == "ELECTRIC"], 50, replace = T)
+  index2 <- sample(df.model$tag[df.model$Ft == "DIESEL"], 50, replace = T)
+  index3 <- sample(df.model$tag[df.model$Ft == "PETROL"], 50, replace = T)
+  return = c(index1, index2, index3)
+}
+
+df.model$tag = c(1:nrow(df.model))
+temp = get.train.indices()
+train = df.model[temp,]
+test = df.model[-temp,]
+```
+
+Looking at the proportion of sampling, the proportions of each category in the test and training sets are comparable. 
+```{r}
+table(df.model$Ft)
+table(train$Ft)#/nrow(data_train)
+table(test$Ft)#/nrow(data_test)
+```
+
+```{r}
+names(test)
+```
+
+
+Now train the tree models. Three trees will be created:
+
+```{r}
+hyperparams = rpart.control(maxdepth = 3)
+tree = rpart(data = train, Ft ~ MS+Mk+`m (kg)`+`Enedc (g/km)`+`W (mm)`+`ec (cm3)`+`ep (KW)`, control = hyperparams)
+(rpart.plot(tree))
+pred = predict(tree, newdata = test, type="class")
+(TABLE = table(pred, test$Ft))
+```
+
+```{r}
+hyperparams = rpart.control(maxdepth = 3)
+tree = rpart(data = train, Ft ~ MS+Mk+`m (kg)`+`W (mm)`+`ec (cm3)`+`ep (KW)`, control = hyperparams)
+(rpart.plot(tree))
+pred = predict(tree, newdata = test, type="class")
+(TABLE = table(pred, test$Ft))
+```
+
+```{r}
+hyperparams = rpart.control(maxdepth = 5)
+tree = rpart(data = train, Ft ~ `m (kg)`+`W (mm)`+`ec (cm3)`+`ep (KW)`, control = hyperparams)
+(rpart.plot(tree))
+pred = predict(tree, newdata = test, type="class")
+(TABLE = table(pred, test$Ft))
+```
+
+
+
+
