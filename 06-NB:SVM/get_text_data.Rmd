@@ -1,0 +1,59 @@
+---
+title: "NB_record"
+author: "Ercong Luo"
+date: "11/23/2021"
+output: html_document
+---
+
+# Naive Bayes: Categorizing Tweets about Electric Vehicles vs ICE Cars 
+
+## Set up environment: 
+```{r}
+library(arules)
+library(arulesViz)
+library(igraph)
+library(networkD3)
+library(visNetwork)
+library(tidyverse)
+library(tokenizers, stopwords)
+library(rtweet)
+#library(dployr)
+```
+
+
+
+## Gathering Tweets
+
+```{r}
+df1.1 = search_tweets(q = "ICE cars lang:en", n = 1500, type = "mixed", include_rts = F)
+df1.2 = search_tweets(q = "internal combustion cars lang:en", n = 1500, type = "mixed", include_rts = F)
+df1.3 = search_tweets(q = "conventional cars lang:en", n = 1500, type = "mixed", include_rts = F)
+df1.4 = search_tweets(q = "internal combustion cars lang:en", n = 1500, type = "recent", include_rts = F)
+df2 = search_tweets(q = "electric vehicles lang:en", n = 3000, type = "mixed", include_rts = F)
+```
+
+```{r}
+df1 = rbind(rbind(rbind(df1.1, df1.2), df1.3), df1.4)
+#rm(df1.1, df1.2, df1.3, df1.4)
+```
+
+```{r}
+relevant_features = c('user_id', 'text', 'country', 'location')
+df1 = df1[, relevant_features]
+df2 = df2[, relevant_features]
+```
+
+Give the ground truth labels: 
+
+```{r}
+df1$label = replicate(nrow(df1), "ICE")
+df2$label = replicate(nrow(df2), "EV")
+```
+
+```{r}
+write_csv(rbind(df1, df2), "twitter_binary_classification.csv")
+```
+
+
+
+

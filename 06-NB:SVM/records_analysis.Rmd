@@ -1,0 +1,328 @@
+---
+title: "records_analysis"
+author: "Ercong Luo"
+date: "11/23/2021"
+output: html_document
+---
+
+```{r}
+library(tidyverse)
+library(readxl)
+library(ggplot2)
+library(readr)
+library(dplyr)
+library(party)
+library(ROCR)
+library(naivebayes)
+library(e1071) # for SVM, documentation: https://www.rdocumentation.org/packages/e1071/versions/1.7-9/topics/svm
+library(yardstick)
+library(ggplot2)
+set.seed(100)
+```
+
+
+```{r}
+df <- read_excel("/Users/ercongluo/Documents/GU/501/501portfolio/05-DT/CO2_passenger_cars.xlsx", guess_max = 300, n_max = Inf)
+```
+
+The following are the features in the data frame: ('-' is for irrelevant features, '*' is for predictive features)
+
+-ID : Identification number
+-VFN : Vehicle family identification number
+-Mh : Manufacturer name EU standard denomination
+-Man : Manufacturer name OEM declaration
+-MMS : Manufacturer name MS registry denomination
+-TAN : Type approval number
+-T : Type
+-Va : Variant
+-Ve : Version
+-Mt : WLTP test mass (too many “NA”)
+-IT : Innovative technology or group of innovative technologies (too many “NA”)
+*MS : Member state
+*Mp : Manufacturer pooling
+*Ct : Category of the vehicle type approved
+*Cr : Category of the vehicle registered
+*Ewltp (g/km) : Specific CO2 Emissions (WLTP)
+*At1 (mm) : Axle width steering axle
+*At2 (mm) : Axle width other axle
+*z (Wh/km) : Electric energy consumption
+*Ernedc (g/km) : Emissions reduction through innovative technologies
+*Erwltp (g/km) : Emissions reduction through innovative technologies (WLTP)
+*De : Deviation factor
+*Vf : Verification factor
+*r : Total new registrations
+*Mk : Make
+*Cn : Commercial name
+*m (kg) : Mass in running order complete vehicle
+*W (mm) : Wheel Base
+*Fm : Fuel mode
+*ec (cm3) : Engine capacity
+*ep (KW) : Engine power
+*Ft : Fuel type
+
+
+Subsetting the DF to relevant features: 
+
+```{r}
+features = c( "MS",
+              "Mp",
+              "Ct",
+              "Cr",
+              "Ewltp (g/km)",
+              "At1 (mm)",
+              "At2 (mm)",
+              "z (Wh/km)",
+              "Ernedc (g/km)",
+              "Erwltp (g/km)",
+              "De",
+              "Vf",
+              "r",
+              "Mk",
+              "Cn",
+              "m (kg)",
+              "W (mm)",
+              "Fm",
+              "ec (cm3)",
+              "ep (KW)",
+              "Ft"
+              )
+df = subset(df, select = features)
+```
+
+Spot the features with too many missing values: 
+
+```{r}
+for (feature in features){
+  print(paste(feature, ": NA rate: ", mean(is.na(df[feature]))))
+}
+```
+
+Take out the features with too many missing values: 
+
+```{r}
+bad_features <- c("Ewltp (g/km)", "z (Wh/km)", "Ernedc (g/km)", "Erwltp (g/km)", "De", "Vf")
+features.bool <- !(features %in% bad_features)
+df = df[, features.bool]
+```
+
+Metadata: 
+
+```{r}
+head(df, n = 30)
+str(df)
+```
+
+Cleaning up the make of the cars. And these are the electric car makers represented in the dataset:
+```{r}
+df$Mk = toupper(df$Mk)
+df$Mk[df$Mk == "ALFA"] = "ALFA ROMEO"
+df$Mk[df$Mk == "ASTON MARTIN"] = "ASTON-MARTIN"
+df$Mk[df$Mk == "Audi"] = "AUDI"
+df$Mk[df$Mk == "BMW ALPINA"] = "BMW"
+df$Mk[df$Mk == "BMW I"] = "BMW"
+df$Mk[df$Mk == "CITROËN"] = "CITROEN"
+df$Mk[df$Mk == "CITROEN, DS"] = "CITROEN"
+df$Mk[df$Mk == "Ford"] = "FORD"
+df$Mk[df$Mk == "Honda"] = "HONDA"
+df$Mk[df$Mk == "ALFA"] = "ALFAROMEO"
+df$Mk[df$Mk == "MERCEDES"] = "MERCEDES-BENZ"
+df$Mk[df$Mk == "TESLA MOTORS"] = "TESLA"
+df$Mk[df$Mk == "VOLKSWAGEN, VW"] = "VOLKSWAGEN"
+df$Mk[df$Mk == "VOLKSWAGEN,VW"] = "VOLKSWAGEN"
+df$Mk[df$Mk == "VW"] = "VOLKSWAGEN"
+(table(df$Mk[df$Ft == "ELECTRIC"]))
+```
+
+```{r}
+df$Ft = toupper(df$Ft)
+```
+
+```{r}
+df = df[(df$Ft== "DIESEL" | df$Ft== "ELECTRIC" | df$Ft== "PETROL"),]
+df$Ft[df$Ft == "DIESEL"] = "ICE"
+df$Ft[df$Ft == "PETROL"] = "ICE"
+df = df[!is.na(df$Ft), ]
+df = select(df, -Cn)
+```
+
+More more round of data cleaning: convert to Factors when necessary. 
+
+```{r}
+df$MS = as.factor(df$MS)
+df$Mp = as.factor(df$Mp)
+df$Ct = as.factor(df$Ct)
+df$Cr = as.factor(df$Cr)
+df$Mk = as.factor(df$Mk)
+df$Ft = as.factor(df$Ft)
+df$Fm = as.factor(df$Fm)
+```
+
+```{r}
+str(df)
+```
+
+Split test & train datasets: 
+
+```{r}
+get.train.indices <- function(df.model, train.percentage){
+  num <- nrow(df.model)
+  num.e = sum(df.model$Ft == 'ELECTRIC')
+  num.ice = num - num.e
+  
+  df.model$tag = c(1:num)
+  index1 <- sample(df.model$tag[df.model$Ft == 'ELECTRIC'], round(num.e * train.percentage), replace = F)
+  index2 <- sample(df.model$tag[df.model$Ft == 'ICE'], round(num.ice * train.percentage), replace = F)
+  
+  df.model <- select(df.model, -tag)
+  return = c(index1, index2)
+}
+
+temp = get.train.indices(df, 0.90)
+df.train = df[temp,]
+df.test = df[-temp,]
+```
+
+Now train Naive Bayes: 
+
+```{r}
+model.NB.categorical <- naive_bayes(Ft ~ MS + Mp + Ct + Cr + Mk + Fm, 
+                                   data = df.train, 
+                                   laplace = 1, 
+                                   na.action = na.pass)
+model.NB.gaussian <- naive_bayes(Ft ~ `At1 (mm)` + `At2 (mm)` + r + `m (kg)` + `W (mm)` + `ec (cm3)` + `ep (KW)`, 
+                                data = df.train, 
+                                laplace = 1, 
+                                na.action = na.pass)
+model.NB.nonparametric <- naive_bayes(Ft ~ MS + Mp + Ct + Cr + Mk + Fm + `At1 (mm)` + `At2 (mm)` + r + `m (kg)` + `W (mm)` + `ec (cm3)` + `ep (KW)`, 
+                                     data = df.train, 
+                                     laplace = 1,
+                                     na.action = na.pass)
+```
+
+Take a look at the summary of these models: 
+
+```{r}
+summary(model.NB.categorical)
+summary(model.NB.gaussian)
+summary(model.NB.nonparametric)
+```
+
+And use trained Naive Bayes to predict the test dataset:  
+
+```{r}
+predictions.NB.categorical <- predict(model.NB.categorical, 
+                                      type = "class",
+                                      newdata = df.test
+                                      )
+
+predictions.NB.gaussian <- predict(model.NB.gaussian, 
+                                      type = "class",
+                                      newdata = df.test
+                                   )
+
+predictions.NB.nonparametric <- predict(model.NB.nonparametric, 
+                                      type = "class",
+                                      newdata = df.test
+                                      )
+```
+
+Look at confusion matrices: 
+
+```{r}
+table(df.test$Ft, predictions.NB.categorical)
+table(df.test$Ft, predictions.NB.gaussian)
+table(df.test$Ft, predictions.NB.nonparametric)
+```
+
+Visualizations: 
+
+```{r}
+#hist(df.train$`W (mm)`[df.train$Ft == "ELECTRIC"], nclass = 70)
+#hist(df.train$`W (mm)`[df.train$Ft == "ICE"], nclass = 70)
+qplot(x = `W (mm)`, main = "distribution of feature W (mm)", data = df.train, geom = "density", fill = Ft, binwidth = 100, xlim = c(1750, 3000))
+qplot(x = `ep (KW)`, main = "distribution of feature ep (KW)", data = df.train, geom = "density", fill = Ft, binwidth = 100, xlim = c(0, 250))
+qplot(x = `m (kg)`, main = "distribution of mass (kg)", data = df.train, geom = "density", fill = Ft, binwidth = 100, xlim = c(700, 2750))
+```
+
+
+## SVM
+
+First all rows with NA must be eliminated because SVM is not tolerant of these values. 
+
+```{r}
+svm.df.test <- select(df.test, -`ec (cm3)`) # this label have too many NA vales for EVs
+svm.df.test <- select(svm.df.test, -Mp) # this label have too many NA vales for EVs
+svm.df.test <- na.omit(svm.df.test) # SVM is intolerant of NAs
+
+svm.df.train <- select(df.train, -`ec (cm3)`) # this label have too many NA vales for EVs
+svm.df.train <- select(svm.df.train, -Mp) # this label have too many NA vales for EVs
+svm.df.train <- na.omit(svm.df.train) # SVM is intolerant of NAs
+
+temp1 <- get.train.indices(svm.df.train, 0.01)
+svm.df.train <- svm.df.train[temp1, ]
+```
+
+
+Now train SVM: 
+
+```{r}
+for (kernel_choice in c("linear", "radial", "sigmoid")) {
+  for (cost_choice in c(0.01, 0.02, 0.05, 0.1, 0.2, 0.5, 1, 2, 5, 10, 20)) {
+    svm.model <- svm(Ft ~ `At1 (mm)` + `At2 (mm)` + r + `m (kg)` + `W (mm)` + `ep (KW)`,
+                     svm.df.train, 
+                     kernel = kernel_choice, 
+                     cost = cost_choice
+                     )
+    acc <- sum(predict(svm.model, svm.df.train) == svm.df.train$Ft) / nrow(svm.df.train)
+    print(paste(kernel_choice, "cost:", cost_choice, ",", round(acc, 3)))
+  }
+}
+```
+
+Use the cost parameters that produce the best accuracy: 
+
+```{r}
+kernels = c("linear", "radial", "sigmoid")
+costs = c(10, 10, 5)
+
+model.svm.linear <- svm(Ft ~ `At1 (mm)` + `At2 (mm)` + r + `m (kg)` + `W (mm)` + `ep (KW)`,
+                     svm.df.train, 
+                     kernel = kernels[1], 
+                     cost = costs[1]
+                     )
+
+model.svm.radial <- svm(Ft ~ `At1 (mm)` + `At2 (mm)` + r + `m (kg)` + `W (mm)` + `ep (KW)`,
+                     svm.df.train, 
+                     kernel = kernels[2], 
+                     cost = costs[2]
+                     )
+
+model.svm.sigmoid <- svm(Ft ~ `At1 (mm)` + `At2 (mm)` + r + `m (kg)` + `W (mm)` + `ep (KW)`,
+                     svm.df.train, 
+                     kernel = kernels[3], 
+                     cost = costs[3]
+                     )
+```
+
+
+And use trained SVM to predict the test dataset:  
+
+```{r}
+predictions.SVM.linear <- predict(model.svm.linear, newdata = svm.df.test, type = "class")
+
+predictions.SVM.radial <- predict(model.svm.radial, newdata = svm.df.test, type = "class")
+
+predictions.SVM.sigmoid <- predict(model.svm.sigmoid, newdata = svm.df.test, type = "class")
+```
+
+Now see the confusion matrices: 
+
+```{r}
+table(svm.df.test$Ft, predictions.SVM.linear)
+table(svm.df.test$Ft, predictions.SVM.radial)
+table(svm.df.test$Ft, predictions.SVM.sigmoid)
+```
+
+
+
+
